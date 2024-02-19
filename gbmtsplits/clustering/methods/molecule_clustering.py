@@ -1,40 +1,22 @@
-import tqdm
+# -*- coding: utf-8 -*-
+
+from abc import ABC, abstractmethod
+from typing import Callable
+from typing import List
+from enum import Enum, auto as enum_auto
 
 import numpy as np
-import pandas as pd
-
 from pulp import *
-from typing import List, Dict
-from abc import ABC, abstractmethod
-
-from typing import Literal, Callable
-
 from rdkit import Chem, DataStructs
 from rdkit.Chem.Scaffolds import MurckoScaffold
-from rdkit.SimDivFilters import rdSimDivPickers
 from rdkit.Chem.rdFingerprintGenerator import GetMorganGenerator
+from rdkit.SimDivFilters import rdSimDivPickers
 
-from time import time as timer
-
-class ClusteringMethod(ABC):
-
-    """
-    Abstract base class for clustering methods.
-    """
-
-    @abstractmethod
-    def __call__(self, smiles_list : List[str]) -> dict:
-        pass
-
-    def get_name(self) -> str:
-        return self.__class__.__name__
-
-    def _set_n_clusters(self, N : int) -> None:
-        self.n_clusters = self.n_clusters if self.n_clusters is not None else N // 10 
+from ...clustering.interface import MoleculeClusteringMethod
 
 
 
-class RandomClustering(ClusteringMethod):
+class RandomClustering(MoleculeClusteringMethod):
 
     """
     Randomly cluster a list of SMILES strings into n_clusters clusters.
@@ -52,13 +34,13 @@ class RandomClustering(ClusteringMethod):
         self.n_clusters = n_clusters
         self.seed = seed
 
-    def __call__(self, smiles_list : List[str]) -> dict:
+    def __call__(self, string_list : List[str]) -> dict:
         """
         Randomly cluster a list of SMILES strings into n_clusters clusters.
         
         Parameters
         ----------
-        smiles_list : list[str]
+        string_list : list[str]
             List of SMILES strings to cluster.
         
         Returns
@@ -67,20 +49,20 @@ class RandomClustering(ClusteringMethod):
             Dictionary of clusters, where keys are cluster indices and values are indices of SMILES strings.
         """
 
-        self._set_n_clusters(len(smiles_list))
+        self._set_n_clusters(len(string_list))
 
         # Initialize clusters
         clusters = { i: [] for i in range(self.n_clusters) }
 
         # Randomly assign each molecule to a cluster
-        indices = np.random.RandomState(seed=self.seed).permutation(len(smiles_list))
+        indices = np.random.RandomState(seed=self.seed).permutation(len(string_list))
         for i, index in enumerate(indices):
             clusters[i % self.n_clusters].append(index)
 
         return clusters
 
         
-class MurckoScaffoldClustering(ClusteringMethod):
+class MurckoScaffoldClustering(MoleculeClusteringMethod):
 
     """
     Cluster a list of SMILES strings based on Murcko scaffolds.
@@ -89,19 +71,24 @@ class MurckoScaffoldClustering(ClusteringMethod):
     def __init__(self) -> None:
         super().__init__()
 
-    def __call__(self, smiles_list : List[str]) -> dict:
+    def __call__(self, string_list : List[str]) -> dict:
 
         """
         Cluster a list of SMILES strings based on Murcko scaffolds.
 
         Parameters
         ----------
-        smiles_list : list[str]
+        string_list : list[str]
             List of SMILES strings to cluster.
+
+        Returns
+        -------
+        clusters : dict
+            Dictionary of clusters, where keys are cluster indices and values are indices of SMILES strings.
         """
             
         # Generate scaffolds for each molecule
-        mols = [Chem.MolFromSmiles(smiles) for smiles in smiles_list]
+        mols = [Chem.MolFromSmiles(smiles) for smiles in string_list]
         scaffolds = [ MurckoScaffold.GetScaffoldForMol(mol) for mol in mols ]
 
         # Get unique scaffolds and initialize clusters
@@ -113,8 +100,9 @@ class MurckoScaffoldClustering(ClusteringMethod):
             clusters[unique_scaffolds.index(scaffold)].append(i)
 
         return clusters
-    
-class DissimilarityClustering(ClusteringMethod):
+
+
+class MoleculeSimilarityClustering(MoleculeClusteringMethod):
     
         """
         Abstract base class for clustering methods based on molecular dissimilarity.
@@ -124,14 +112,14 @@ class DissimilarityClustering(ClusteringMethod):
             super().__init__()
             self.fp_calculator = fp_calculator
 
-        def __call__(self, smiles_list : List[str]) -> dict:
+        def __call__(self, string_list : List[str]) -> dict:
 
             """
             Cluster a list of SMILES strings based on molecular dissimilarity.
             
             Parameters
             ----------
-            smiles_list : list[str]
+            string_list : list[str]
                 List of SMILES strings to cluster.
             
             Returns
@@ -139,8 +127,8 @@ class DissimilarityClustering(ClusteringMethod):
             clusters : dict
                 Dictionary of clusters, where keys are cluster indices and values are indices of SMILES strings.
             """
-
-            fps = [self.fp_calculator.GetFingerprint(Chem.MolFromSmiles(smiles)) for smiles in smiles_list]
+            # TODO: support sparse fingerprints
+            fps = [self.fp_calculator.GetFingerprint(Chem.MolFromSmiles(smiles)) for smiles in string_list]
 
             # Get cluster centroids and initialize clusters
             centroid_indices = self._get_centroids(fps)
@@ -157,7 +145,8 @@ class DissimilarityClustering(ClusteringMethod):
         def _get_centroids(self, fps : list) -> list:
             pass
 
-class MaxMinClustering(DissimilarityClustering):
+
+class MaxMinClustering(MoleculeSimilarityClustering):
 
     """
     Cluster a list of SMILES strings based on molecular dissimilarity using the MaxMin algorithm.
@@ -204,8 +193,9 @@ class MaxMinClustering(DissimilarityClustering):
         centroid_indices = picker.LazyBitVectorPick(fps, len(fps), self.n_clusters, seed=self.seed)
 
         return centroid_indices
-    
-class LeaderPickerClustering(DissimilarityClustering):
+
+
+class LeaderPickerClustering(MoleculeSimilarityClustering):
 
     """
     Cluster a list of SMILES strings based on molecular dissimilarity using LeadPicker to select centroids.

@@ -2,13 +2,13 @@
 import numpy as np
 import pandas as pd
 
-from pulp import *
+from pulp import LpProblem, LpVariable, LpAffineExpression, LpMinimize, PULP_CBC_CMD, value
 from typing import Callable
 
 from rdkit import Chem, DataStructs
 from rdkit.Chem.rdFingerprintGenerator import GetMorganGenerator
 
-from .clustering import MaxMinClustering, LeaderPickerClustering, MurckoScaffoldClustering, RandomClustering
+from .clustering.molecule import MaxMinClustering, LeaderPickerClustering, MurckoScaffoldClustering, RandomClustering
 from .logs import logger
 
 class GloballyBalancedSplit:
@@ -132,7 +132,7 @@ class GloballyBalancedSplit:
             txt = f' {split_name} '
             n = int((80 - len(txt)) / 2)
             logger.info('=' * n + txt + '=' * n)
-            logger.info(f'Clustering method: {self.clustering_method.get_name() if self.clustering_method else "precomputed clusters"}')
+            logger.info(f'Clustering method: {self.clustering_method.name if self.clustering_method else "precomputed clusters"}')
             logger.info(f'Original tasks: {self.original_tasks}')
             logger.info(f'Tasks for balancing: {self.tasks_for_balancing}')
             logger.info(f'Subset sizes: {self.sizes}')
